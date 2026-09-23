@@ -350,6 +350,9 @@ export class ToolsListWidget extends Disposable {
 	private readonly _onDidChangeItemCount = this._register(new Emitter<number>());
 	readonly onDidChangeItemCount = this._onDidChangeItemCount.event;
 
+	private readonly _onDidRequestBrowseMarketplace = this._register(new Emitter<void>());
+	readonly onDidRequestBrowseMarketplace = this._onDidRequestBrowseMarketplace.event;
+
 	private readonly _rowStore = this._register(new DisposableStore());
 	private readonly _pendingSectionLayout = this._register(new MutableDisposable());
 	private readonly _searchQuery = observableValue<string>('toolsSearchQuery', '');
@@ -629,9 +632,7 @@ export class ToolsListWidget extends Disposable {
 				const browseLabel = localize('toolsBrowseMarketplace', "Browse Marketplace");
 				const browseButton = this._rowStore.add(new Button(actions, { ...defaultButtonStyles, secondary: true, supportIcons: true, title: browseLabel, ariaLabel: browseLabel }));
 				browseButton.label = `$(${Codicon.library.id}) ${browseLabel}`;
-				this._rowStore.add(browseButton.onDidClick(() => {
-					void this._extensionsWorkbenchService.openSearch('@tag:language-model-tools');
-				}));
+				this._rowStore.add(browseButton.onDidClick(() => this._onDidRequestBrowseMarketplace.fire()));
 			} : undefined,
 		);
 
