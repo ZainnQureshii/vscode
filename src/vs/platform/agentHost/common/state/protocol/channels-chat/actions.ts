@@ -10,7 +10,7 @@ import { ActionType } from '../common/actions.js';
 import type { StringOrMarkdown, FileEdit, UsageInfo, URI } from '../common/state.js';
 import type { Changeset } from '../channels-changeset/state.js';
 import type { McpAuthRequirement } from '../channels-session/state.js';
-import { ToolCallConfirmationReason, ToolCallCancellationReason, PendingMessageKind, type Message, type ResponsePart, type ToolCallResult, type ToolResultContent, type ChatInputAnswer, type ChatInputRequest, type ChatInputResponseKind, type ConfirmationOption, type ErrorResponsePart, type ToolCallContributor, type ToolCallRiskAssessment, type ToolInput, type Turn } from './state.js';
+import { ToolCallConfirmationReason, ToolCallCancellationReason, PendingMessageKind, type Message, type ResponsePart, type ToolCallResult, type ToolResultContent, type ChatInputAnswer, type ChatInputRequest, type ChatInputResponseKind, type CanvasInstance, type ConfirmationOption, type ErrorResponsePart, type ToolCallContributor, type ToolCallRiskAssessment, type ToolInput, type Turn } from './state.js';
 
 // ─── Tool Call Action Base ───────────────────────────────────────────────────
 
@@ -550,6 +550,21 @@ export interface ChatChangesetsChangedAction {
 }
 
 /**
+ * The live canvas instances exposed by this chat changed.
+ *
+ * Replaces {@link ChatState.canvases | `state.canvases`} entirely. Set to
+ * `undefined` to clear the collection.
+ *
+ * @category Chat Actions
+ * @version 1
+ */
+export interface ChatCanvasesChangedAction {
+	type: ActionType.ChatCanvasesChanged;
+	/** New canvas collection, or `undefined` to clear it. */
+	canvases: CanvasInstance[] | undefined;
+}
+
+/**
  * A working directory was added to this chat's
  * {@link ChatState.workingDirectories} subset.
  *
@@ -870,6 +885,7 @@ export type ChatAction =
 	| ChatTurnResumeAction
 	| ChatActivityChangedAction
 	| ChatChangesetsChangedAction
+	| ChatCanvasesChangedAction
 	| ChatWorkingDirectorySetAction
 	| ChatWorkingDirectoryRemovedAction
 	| ChatUsageAction

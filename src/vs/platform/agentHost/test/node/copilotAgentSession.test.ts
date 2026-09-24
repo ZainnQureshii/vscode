@@ -109,6 +109,10 @@ const noOpWorkingDirectoryChangeTransaction: ICopilotWorkingDirectoryChangeTrans
  */
 class MockCopilotSession {
 	readonly sessionId = 'test-session-1';
+	readonly openCanvases: CopilotSession['openCanvases'] = [];
+	readonly extensions: Awaited<ReturnType<CopilotSession['rpc']['extensions']['list']>>['extensions'] = [];
+	extensionListGate: Promise<void> | undefined;
+	onExtensionList: (() => void) | undefined;
 	readonly eventLogReadRequests: Parameters<CopilotSession['rpc']['eventLog']['read']>[0][] = [];
 	eventLogReadGate: Promise<void> | undefined;
 	readonly sendRequests: unknown[] = [];
@@ -372,6 +376,16 @@ class MockCopilotSession {
 					? { kind: 'directory' as const, path: destination.outputDirectory, entries: [] }
 					: { kind: 'archive' as const, path: destination.outputPath, entries: [] };
 			},
+		},
+		extensions: {
+			list: async () => {
+				this.onExtensionList?.();
+				await this.extensionListGate;
+				return { extensions: this.extensions };
+			},
+		},
+		canvas: {
+			list: async () => ({ canvases: [] }),
 		},
 		metadata: {
 			setWorkingDirectory: async (params: Parameters<CopilotSession['rpc']['metadata']['setWorkingDirectory']>[0]) => {
@@ -1874,6 +1888,113 @@ suite('CopilotAgentSession', () => {
 			included: false,
 			callCount: 1,
 		});
+	});
+
+	test('projects only live canvas events after resume and fences source revisions', async () => {
+		const { session, mockSession, signals } = await createAgentSession(disposables, {
+			resume: true,
+			configureMockSession: mock => {
+				mock.openCanvases.push({
+					instanceId: 'preview',
+					extensionId: 'project:preview',
+					canvasId: 'preview',
+					url: 'https://example.test/restored',
+				});
+			},
+		});
+
+		mockSession.fire('session.canvas.opened', {
+			instanceId: 'preview',
+			extensionId: 'project:preview',
+			canvasId: 'preview',
+			url: 'https://example.test/restored',
+		});
+		mockSession.fire('user.message', { content: 'Open the canvas again', messageId: 'message-1' } as SessionEventPayload<'user.message'>['data']);
+		mockSession.fire('session.canvas.opened', {
+			instanceId: 'preview',
+			extensionId: 'project:preview',
+			extensionName: 'Preview',
+			canvasId: 'preview',
+			title: 'Preview',
+			status: 'ready',
+			url: 'https://example.test/live',
+		});
+		const source = session.resolveCanvasSource('preview', 1);
+		mockSession.fire('session.canvas.unavailable', {
+			instanceId: 'preview',
+			extensionId: 'project:preview',
+			canvasId: 'preview',
+		});
+		assert.throws(() => session.resolveCanvasSource('preview', 1), /not available/);
+		session.dispose();
+
+		assert.deepStrictEqual({
+			source,
+			actions: getActions(signals).filter(action => action.type === ActionType.ChatCanvasesChanged),
+		}, {
+			source: 'https://example.test/live',
+			actions: [
+				{
+					type: ActionType.ChatCanvasesChanged,
+					canvases: [{
+						instanceId: 'preview',
+						extensionId: 'project:preview',
+						extensionName: 'Preview',
+						canvasId: 'preview',
+						title: 'Preview',
+						status: 'ready',
+						revision: 1,
+						availability: 'ready',
+					}],
+				},
+				{
+					type: ActionType.ChatCanvasesChanged,
+					canvases: [{
+						instanceId: 'preview',
+						extensionId: 'project:preview',
+						extensionName: 'Preview',
+						canvasId: 'preview',
+						title: 'Preview',
+						status: 'ready',
+						revision: 2,
+						availability: 'unavailable',
+					}],
+				},
+				{ type: ActionType.ChatCanvasesChanged, canvases: undefined },
+			],
+		});
+	});
+
+	test('observes extension readiness events that race with the status snapshot', async () => {
+		const listStarted = new DeferredPromise<void>();
+		const releaseList = new DeferredPromise<void>();
+		let mockSession: MockCopilotSession | undefined;
+		const creation = createAgentSession(disposables, {
+			configureMockSession: mock => {
+				mockSession = mock;
+				mock.extensions.push({
+					id: 'project:preview',
+					name: 'preview',
+					source: 'project',
+					status: 'starting',
+				});
+				mock.onExtensionList = () => listStarted.complete();
+				mock.extensionListGate = releaseList.p;
+			},
+		});
+		await listStarted.p;
+		mockSession?.fire('session.extensions_loaded', {
+			extensions: [{
+				id: 'project:preview',
+				name: 'preview',
+				source: 'project',
+				status: 'running',
+			}],
+		});
+		releaseList.complete();
+
+		const { session } = await creation;
+		session.dispose();
 	});
 
 	suite('CopilotSessionWrapper', () => {
